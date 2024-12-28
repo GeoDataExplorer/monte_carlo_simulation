@@ -1,0 +1,97 @@
+# Install required libraries if not already installed
+# install.packages("shiny")
+# install.packages("ggplot2")
+
+library(shiny)
+library(ggplot2)
+
+# Functions for log transformations
+log_transform_mean <- function(original_mean, original_sd) {
+  log_mean <- log(original_mean^2 / sqrt(original_mean^2 + original_sd^2))
+  return (log_mean)
+}
+
+log_transform_sd <- function(original_mean, original_sd) {
+  log_sd <- sqrt(log(1 + original_sd^2 / original_mean^2))
+  return (log_sd)
+}
+
+# Define UI for the Shiny app
+ui <- fluidPage(
+  titlePanel("Oil and Gas Simulation"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      numericInput("n_simulations", "Number of Simulations:", 1000),
+      
+      numericInput("area_mean", "Mean Area:", 1000),
+      numericInput("area_sd", "SD Area:", 100),
+      
+      numericInput("thickness_mean", "Mean Thickness:", 30),
+      numericInput("thickness_sd", "SD Thickness:", 5),
+      
+      numericInput("porosity_mean", "Mean Porosity:", 0.2),
+      numericInput("porosity_sd", "SD Porosity:", 0.05),
+      
+      numericInput("water_saturation_mean", "Mean Water Saturation:", 0.4),
+      numericInput("water_saturation_sd", "SD Water Saturation:", 0.1),
+      
+      numericInput("GOR_mean", "Mean GOR:", 1000),
+      numericInput("GOR_sd", "SD GOR:", 100),
+      
+      numericInput("rf_mean", "Mean RF:", 0.15),
+      numericInput("rf_sd", "SD RF:", 0.05),
+      
+      actionButton("run_sim", "Run Simulation")
+    ),
+    
+    mainPanel(
+      plotOutput("cdf_in_place"),
+      plotOutput("cdf_in_place_rf")
+    )
+  )
+)
+
+# Define server logic
+server <- function(input, output) {
+  
+  observeEvent(input$run_sim, {
+    
+    # Generate random data for simulation
+    n_simulations <- input$n_simulations
+    
+    area <- rlnorm(n_simulations, meanlog = log_transform_mean(input$area_mean, input$area_sd), sdlog = log_transform_sd(input$area_mean, input$area_sd))
+    thickness <- rlnorm(n_simulations, meanlog = log_transform_mean(input$thickness_mean, input$thickness_sd), sdlog = log_transform_sd(input$thickness_mean, input$thickness_sd))
+    porosity <- rlnorm(n_simulations, meanlog = log_transform_mean(input$porosity_mean, input$porosity_sd), sdlog = log_transform_sd(input$porosity_mean, input$porosity_sd))
+    water_saturation <- rlnorm(n_simulations, meanlog = log_transform_mean(input$water_saturation_mean, input$water_saturation_sd), sdlog = log_transform_sd(input$water_saturation_mean, input$water_saturation_sd))
+    GOR <- rlnorm(n_simulations, meanlog = log_transform_mean(input$GOR_mean, input$GOR_sd), sdlog = log_transform_sd(input$GOR_mean, input$GOR_sd))
+    rf <- rlnorm(n_simulations, meanlog = log_transform_mean(input$rf_mean, input$rf_sd), sdlog = log_transform_sd(input$rf_mean, input$rf_sd))
+    
+    oil_saturation <- 1 - water_saturation
+    Bo <-  0.0005 * ifelse(GOR > 8000, 8000, GOR) + 0.9447
+    
+    conversion_factor <- 7758  # Define as needed
+    
+    # Calculate Original Oil/Gas in Place for each simulation
+    in_place <- (conversion_factor * (640 * thickness) * porosity * oil_saturation) / 1000000
+    in_place_rf <- ((conversion_factor * (640 * thickness) * porosity * oil_saturation) / 1000000) * rf
+    
+    # Render CDF plots
+    output$cdf_in_place <- renderPlot({
+      ggplot(data.frame(in_place), aes(x = in_place)) +
+        stat_ecdf(geom = "step", color = "blue") +
+        labs(title = "CDF of In-Place Volumes", x = "In-Place Volume (MMBO)", y = "Cumulative Probability") +
+        theme_minimal()
+    })
+    
+    output$cdf_in_place_rf <- renderPlot({
+      ggplot(data.frame(in_place_rf), aes(x = in_place_rf)) +
+        stat_ecdf(geom = "step", color = "green") +
+        labs(title = "CDF of In-Place Volumes with RF", x = "In-Place Volume with RF (MMBO)", y = "Cumulative Probability") +
+        theme_minimal()
+    })
+  })
+}
+
+# Run the application 
+shinyApp(ui = ui, server = server)
